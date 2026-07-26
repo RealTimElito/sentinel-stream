@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: sentinel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - sentinel-network
+
+  inference-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: sentinel-inference
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MODEL_PATH=/app/models/tgn_model.pt
+    volumes:
+      - ./models:/app/models
+      - ./configs:/app/configs
+    depends_on:
+      - redis
+    networks:
+      - sentinel-network
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: sentinel-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - inference-api
+    networks:
+      - sentinel-network
+
+volumes:
+  redis-data:
+
+networks:
+  sentinel-network:
+    driver: bridge
+

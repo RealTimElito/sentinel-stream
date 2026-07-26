@@ -1,0 +1,29 @@
+# Inference Service Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  log_level: "info"
+
+redis:
+  host: "localhost"
+  port: 6379
+  stream_name: "network_flows"
+  consumer_group: "inference_workers"
+  batch_size: 10
+  block_time: 1000  # milliseconds
+
+model:
+  path: "./models/tgn_model.pt"
+  device: "cpu"  # "cuda" for GPU
+  threshold: 0.5
+
+explainability:
+  enable_shap: true
+  max_samples: 100
+
+logging:
+  level: "INFO"
+  file: "./logs/inference.log"
+
