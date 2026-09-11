@@ -1,315 +1,228 @@
 """Training pipeline for TGN model."""
 
+from __future__ import annotations
+
+import logging
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from typing import Dict, List, Optional, Tuple
-import logging
-import numpy as np
-from tqdm import tqdm
 import yaml
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 from .tgn_model import TemporalGraphNetwork
-from .graph_construction import NetworkGraphBuilder, aggregate_flows_by_time_window
 
 logger = logging.getLogger(__name__)
 
 
+def collate_temporal_batch(
+    batch: List[Tuple],
+) -> Tuple[List, torch.Tensor]:
+    """Collate TemporalData samples without stacking heterogeneous graphs."""
+    graphs = []
+    labels = []
+    for item in batch:
+        if isinstance(item, tuple):
+            graph, label = item
+            graphs.append(graph)
+            labels.append(label)
+        else:
+            graphs.append(item)
+            labels.append(0)
+    return graphs, torch.tensor(labels, dtype=torch.float32)
+
+
 class TemporalGraphDataset(Dataset):
-    """Dataset for temporal graph data."""
-    
+    """Dataset of temporal graphs with optional labels."""
+
     def __init__(self, graphs: List, labels: Optional[List] = None):
-        """
-        Initialize dataset.
-        
-        Args:
-            graphs: List of TemporalData objects
-            labels: Optional list of labels (for supervised learning)
-        """
         self.graphs = graphs
         self.labels = labels if labels is not None else [0] * len(graphs)
-    
-    def __len__(self):
+
+    def __len__(self) -> int:
         return len(self.graphs)
-    
-    def __getitem__(self, idx):
-        if self.labels:
-            return self.graphs[idx], self.labels[idx]
-        return self.graphs[idx]
+
+    def __getitem__(self, idx: int):
+        return self.graphs[idx], self.labels[idx]
 
 
 class TGNTrainer:
     """Trainer for Temporal Graph Network."""
-    
+
     def __init__(
         self,
         model: TemporalGraphNetwork,
         device: str = "cpu",
         learning_rate: float = 0.001,
-        weight_decay: float = 1e-5
+        weight_decay: float = 1e-5,
     ):
-        """
-        Initialize trainer.
-        
-        Args:
-            model: TGN model instance
-            device: Device to train on
-            learning_rate: Learning rate
-            weight_decay: Weight decay for optimizer
-        """
         self.model = model.to(device)
         self.device = device
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
-        
         self.optimizer = optim.Adam(
-            self.model.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay
+            self.model.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
-        
         self.criterion = nn.BCEWithLogitsLoss()
         self.pretrain_criterion = nn.MSELoss()
-    
+
     def pretrain(
         self,
         train_loader: DataLoader,
         num_epochs: int = 50,
-        verbose: bool = True
+        verbose: bool = True,
     ) -> List[float]:
-        """
-        Self-supervised pre-training (predict next edge).
-        
-        Args:
-            train_loader: DataLoader for training data
-            num_epochs: Number of epochs
-            verbose: Whether to show progress
-            
-        Returns:
-            List of training losses
-        """
         self.model.train()
-        losses = []
-        
+        losses: List[float] = []
+
         for epoch in range(num_epochs):
             epoch_losses = []
-            
-            if verbose:
-                pbar = tqdm(train_loader, desc=f"Pretrain Epoch {epoch+1}/{num_epochs}")
-            else:
-                pbar = train_loader
-            
-            for batch in pbar:
-                if isinstance(batch, tuple):
-                    graphs, _ = batch
-                else:
-                    graphs = batch
-                
-                if isinstance(graphs, list):
-                    graphs = graphs[0]
-                
-                graphs = graphs.to(self.device)
-                
+            iterator = (
+                tqdm(train_loader, desc=f"Pretrain Epoch {epoch+1}/{num_epochs}")
+                if verbose
+                else train_loader
+            )
+
+            for graphs, _ in iterator:
+                batch_loss = 0.0
                 self.optimizer.zero_grad()
-                
-                # Predict next edge
-                predictions = self.model.predict_next_edge(graphs)
-                
-                # Create target (simplified: predict if edge exists)
-                # In practice, use negative sampling
-                targets = torch.ones_like(predictions)
-                
-                loss = self.pretrain_criterion(predictions, targets)
-                loss.backward()
+                for graph in graphs:
+                    graph = graph.to(self.device)
+                    predictions = self.model.predict_next_edge(graph)
+                    targets = torch.ones_like(predictions)
+                    loss = self.pretrain_criterion(predictions, targets)
+                    loss.backward()
+                    batch_loss += float(loss.item())
                 self.optimizer.step()
-                
-                epoch_losses.append(loss.item())
-                
+                epoch_losses.append(batch_loss / max(len(graphs), 1))
                 if verbose:
-                    pbar.set_postfix({'loss': loss.item()})
-            
-            avg_loss = np.mean(epoch_losses)
+                    iterator.set_postfix({"loss": epoch_losses[-1]})
+
+            avg_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
             losses.append(avg_loss)
-            
             if verbose:
-                logger.info(f"Pretrain Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
-        
+                logger.info(
+                    "Pretrain Epoch %s/%s, Loss: %.4f",
+                    epoch + 1,
+                    num_epochs,
+                    avg_loss,
+                )
         return losses
-    
+
     def train(
         self,
         train_loader: DataLoader,
         val_loader: Optional[DataLoader] = None,
         num_epochs: int = 50,
         early_stopping_patience: int = 10,
-        verbose: bool = True
+        verbose: bool = True,
     ) -> Dict[str, List[float]]:
-        """
-        Supervised training for anomaly detection.
-        
-        Args:
-            train_loader: DataLoader for training data
-            val_loader: Optional DataLoader for validation data
-            num_epochs: Number of epochs
-            early_stopping_patience: Patience for early stopping
-            verbose: Whether to show progress
-            
-        Returns:
-            Dictionary with training and validation losses
-        """
         self.model.train()
-        train_losses = []
-        val_losses = []
-        best_val_loss = float('inf')
+        train_losses: List[float] = []
+        val_losses: List[float] = []
+        best_val_loss = float("inf")
         patience_counter = 0
-        
+
         for epoch in range(num_epochs):
-            # Training phase
             epoch_train_losses = []
-            
-            if verbose:
-                pbar = tqdm(train_loader, desc=f"Train Epoch {epoch+1}/{num_epochs}")
-            else:
-                pbar = train_loader
-            
-            for batch in pbar:
-                graphs, labels = batch
-                
-                if isinstance(graphs, list):
-                    graphs = graphs[0]
-                
-                graphs = graphs.to(self.device)
-                labels = torch.tensor(labels, dtype=torch.float32, device=self.device)
-                
+            iterator = (
+                tqdm(train_loader, desc=f"Train Epoch {epoch+1}/{num_epochs}")
+                if verbose
+                else train_loader
+            )
+
+            for graphs, labels in iterator:
+                labels = labels.to(self.device)
                 self.optimizer.zero_grad()
-                
-                # Forward pass
-                predictions, _ = self.model(graphs)
-                
-                # Average predictions for the graph
-                if len(predictions.shape) > 1:
-                    predictions = predictions.mean(dim=0)
-                
-                # Ensure predictions and labels have compatible shapes
-                if predictions.shape != labels.shape:
-                    if len(predictions.shape) == 0:
-                        predictions = predictions.unsqueeze(0)
-                    if len(labels.shape) == 0:
-                        labels = labels.unsqueeze(0)
-                    if predictions.shape[0] != labels.shape[0]:
-                        predictions = predictions[:labels.shape[0]]
-                
-                loss = self.criterion(predictions.squeeze(), labels)
-                loss.backward()
+                batch_loss = 0.0
+                for graph, label in zip(graphs, labels):
+                    graph = graph.to(self.device)
+                    predictions, _ = self.model(graph)
+                    graph_logit = predictions.mean()
+                    loss = self.criterion(graph_logit, label)
+                    loss.backward()
+                    batch_loss += float(loss.item())
                 self.optimizer.step()
-                
-                epoch_train_losses.append(loss.item())
-                
+                epoch_train_losses.append(batch_loss / max(len(graphs), 1))
                 if verbose:
-                    pbar.set_postfix({'loss': loss.item()})
-            
-            avg_train_loss = np.mean(epoch_train_losses)
+                    iterator.set_postfix({"loss": epoch_train_losses[-1]})
+
+            avg_train_loss = float(np.mean(epoch_train_losses)) if epoch_train_losses else 0.0
             train_losses.append(avg_train_loss)
-            
-            # Validation phase
+
             if val_loader:
                 val_loss = self.validate(val_loader, verbose=False)
                 val_losses.append(val_loss)
-                
                 if verbose:
                     logger.info(
-                        f"Epoch {epoch+1}/{num_epochs}, "
-                        f"Train Loss: {avg_train_loss:.4f}, "
-                        f"Val Loss: {val_loss:.4f}"
+                        "Epoch %s/%s, Train Loss: %.4f, Val Loss: %.4f",
+                        epoch + 1,
+                        num_epochs,
+                        avg_train_loss,
+                        val_loss,
                     )
-                
-                # Early stopping
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
                 else:
                     patience_counter += 1
                     if patience_counter >= early_stopping_patience:
-                        logger.info(f"Early stopping at epoch {epoch+1}")
+                        logger.info("Early stopping at epoch %s", epoch + 1)
                         break
-            else:
-                if verbose:
-                    logger.info(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}")
-        
-        return {
-            'train_losses': train_losses,
-            'val_losses': val_losses
-        }
-    
+            elif verbose:
+                logger.info(
+                    "Epoch %s/%s, Train Loss: %.4f",
+                    epoch + 1,
+                    num_epochs,
+                    avg_train_loss,
+                )
+
+        return {"train_losses": train_losses, "val_losses": val_losses}
+
     def validate(self, val_loader: DataLoader, verbose: bool = True) -> float:
-        """
-        Validate model.
-        
-        Args:
-            val_loader: DataLoader for validation data
-            verbose: Whether to show progress
-            
-        Returns:
-            Average validation loss
-        """
         self.model.eval()
         losses = []
-        
+        iterator = tqdm(val_loader, desc="Validation") if verbose else val_loader
+
         with torch.no_grad():
-            if verbose:
-                pbar = tqdm(val_loader, desc="Validation")
-            else:
-                pbar = val_loader
-            
-            for batch in pbar:
-                graphs, labels = batch
-                
-                if isinstance(graphs, list):
-                    graphs = graphs[0]
-                
-                graphs = graphs.to(self.device)
-                labels = torch.tensor(labels, dtype=torch.float32, device=self.device)
-                
-                predictions, _ = self.model(graphs)
-                
-                if len(predictions.shape) > 1:
-                    predictions = predictions.mean(dim=0)
-                
-                if predictions.shape != labels.shape:
-                    if len(predictions.shape) == 0:
-                        predictions = predictions.unsqueeze(0)
-                    if len(labels.shape) == 0:
-                        labels = labels.unsqueeze(0)
-                    if predictions.shape[0] != labels.shape[0]:
-                        predictions = predictions[:labels.shape[0]]
-                
-                loss = self.criterion(predictions.squeeze(), labels)
-                losses.append(loss.item())
-        
+            for graphs, labels in iterator:
+                labels = labels.to(self.device)
+                for graph, label in zip(graphs, labels):
+                    graph = graph.to(self.device)
+                    predictions, _ = self.model(graph)
+                    graph_logit = predictions.mean()
+                    loss = self.criterion(graph_logit, label)
+                    losses.append(float(loss.item()))
+
         self.model.train()
-        return np.mean(losses)
-    
-    def save_model(self, path: str):
-        """Save model to file."""
-        torch.save({
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-        }, path)
-        logger.info(f"Model saved to {path}")
-    
-    def load_model(self, path: str):
-        """Load model from file."""
+        return float(np.mean(losses)) if losses else 0.0
+
+    def save_model(self, path: str) -> None:
+        torch.save(
+            {
+                "model_state_dict": self.model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "model_config": {
+                    "node_dim": self.model.node_dim,
+                    "edge_dim": self.model.edge_dim,
+                    "time_dim": self.model.time_dim,
+                    "memory_dim": self.model.memory_dim,
+                    "message_dim": self.model.message_dim,
+                },
+            },
+            path,
+        )
+        logger.info("Model saved to %s", path)
+
+    def load_model(self, path: str) -> None:
         checkpoint = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        if 'optimizer_state_dict' in checkpoint:
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        logger.info(f"Model loaded from {path}")
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        if "optimizer_state_dict" in checkpoint:
+            self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        logger.info("Model loaded from %s", path)
 
 
 def load_config(config_path: str) -> Dict:
-    """Load configuration from YAML file."""
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
-
+    with open(config_path, "r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle)

@@ -1,165 +1,104 @@
-# Sentinel-Stream: Real-Time Network Anomaly Detection System
+# Sentinel-Stream: Real-Time Network Anomaly Detection
 
-## Overview
+Sentinel-Stream detects anomalous network flows with a Temporal Graph Network (TGN), Redis buffering, a FastAPI inference service, and a React dashboard.
 
-Sentinel-Stream is an advanced network security monitoring system that leverages Temporal Graph Networks (TGN) to detect anomalies and attacks in real-time network traffic. The system combines graph neural networks, secure data ingestion, and a modern web dashboard to provide comprehensive network threat detection.
+> **Status:** v0.1.0 beta — core train/infer paths work; train your own checkpoint before production use.
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Packet Capture │ --> │ Redis Buffer │ --> │ ML Inference│ --> │   Dashboard  │
-│   (libpcap)     │     │   (Streams)  │     │   (FastAPI) │     │   (React)    │
-└─────────────────┘     └──────────────┘     └─────────────┘     └──────────────┘
+Packet Capture --> Redis Streams --> TGN Inference (FastAPI) --> React Dashboard
 ```
 
 ## Features
 
-- **Real-time Packet Capture**: Secure network packet capture using libpcap
-- **Graph-based ML**: Temporal Graph Networks for anomaly detection
-- **Explainable AI**: SHAP integration for attack attribution
-- **Live Dashboard**: Interactive network topology visualization
-- **Secure Transmission**: OpenSSL-encrypted data pipeline
-- **Production Ready**: Docker/Kubernetes deployment support
+- Packet capture with scapy (optional `pypcap` if libpcap is installed)
+- Flow feature engineering and temporal graph construction
+- TGN model with node memory, temporal encoding, and TransformerConv layers
+- FastAPI `/predict`, `/demo/predict`, `/health`, and WebSocket endpoints
+- React topology view driven by API responses
+- Docker Compose + GitHub Actions CI
 
-## Quick Start
-
-### Prerequisites
+## Requirements
 
 - Python 3.9+
-- Docker & Docker Compose
-- Redis
-- libpcap development libraries
+- Redis (for live streaming; optional for `/predict`)
+- Node.js 18+ (dashboard)
+- Optional: Docker, CUDA, libpcap-dev
 
-### Installation
-
-#### Option 1: Using Conda (Recommended)
+## Quick start
 
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd sentinel-stream
-
-# Install system dependencies (libpcap-dev)
-# Ubuntu/Debian:
-sudo apt-get install libpcap-dev
-# macOS:
-brew install libpcap
-# Or use the automated script:
+# System deps (Ubuntu/Debian)
 bash scripts/install_system_deps.sh
 
-# Create conda environment
-conda env create -f environment.yml
-
-# Activate environment
-conda activate sentinel-stream
-
-# Start services with Docker Compose
-docker-compose up -d
-```
-
-#### Option 2: Using pip
-
-```bash
-# Clone the repository
-git clone <repo-url>
-cd sentinel-stream
-
-# Install Python dependencies
+# Python env
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+# or: conda env create -f environment.yml && conda activate sentinel-stream
 
-# Or install as package
-pip install -e .
+# Demo model + API
+python scripts/create_demo_model.py
+uvicorn src.inference.api:app --host 0.0.0.0 --port 8000
 
-# Start services with Docker Compose
-docker-compose up -d
-```
-
-### Training the Model
-
-```bash
-# Download and preprocess dataset (automatic download via Kaggle)
-python scripts/prepare_dataset.py --dataset CIC-IDS2017 --download
-
-# Or download separately
-python scripts/download_dataset.py --method kaggle
-
-# Then preprocess
-python scripts/prepare_dataset.py --dataset CIC-IDS2017
-
-# Train the TGN model
-python scripts/train_model.py --config configs/tgn_config.yaml
-```
-
-### Running the System
-
-```bash
-# Start packet capture (requires root/sudo)
-sudo python src/ingestion/capture.py --interface eth0
-
-# Start inference service
-python src/inference/api.py
-
-# Start dashboard (in separate terminal)
+# Dashboard
 cd dashboard && npm install && npm start
 ```
 
-## Project Structure
+Smoke-check the API:
 
-```
-sentinel-stream/
-├── src/
-│   ├── ingestion/          # Phase 1: Packet capture & ingestion
-│   ├── ml/                 # Phase 2: ML models & training
-│   ├── inference/          # Phase 3: Inference engine
-│   └── utils/              # Shared utilities
-├── dashboard/              # Phase 3: React frontend
-├── configs/                # Configuration files
-├── scripts/                # Utility scripts
-├── tests/                  # Test suite
-└── docs/                   # Documentation
+```bash
+curl -s http://localhost:8000/health
+curl -s -X POST http://localhost:8000/demo/predict | jq .
 ```
 
-## Development Roadmap
+## Train on CIC-IDS2017
 
-### Phase 1: Data Engineering & Foundation ✅
-- [x] Dataset selection (CIC-IDS2017/CSE-CIC-IDS2018)
-- [x] Feature engineering pipeline
-- [x] Secure packet capture with libpcap
-- [x] Redis buffer implementation
-- [x] Secure transmission layer (socat/OpenSSL)
+Place MachineLearningCSV files under `data/raw/`, then:
 
-### Phase 2: ML Core ✅
-- [x] Graph construction from network flows
-- [x] Temporal Graph Network (TGN) implementation
-- [x] Self-supervised pre-training
-- [x] Supervised fine-tuning
-- [x] SHAP explainability integration
+```bash
+python scripts/prepare_dataset.py --dataset CIC-IDS2017
+python scripts/train_model.py --config configs/tgn_config.yaml --max-graphs 64
+```
 
-### Phase 3: Systems & Real-time Integration ✅
-- [x] FastAPI inference engine
-- [x] Redis Streams processing
-- [x] React dashboard with topology visualization
+## Live capture
 
-### Phase 4: DevOps & Polish ✅
-- [x] Docker Compose deployment
-- [x] CI/CD pipeline (GitHub Actions)
-- [x] Comprehensive documentation
+```bash
+docker compose up -d redis
+sudo python scripts/capture_live.py --interface eth0
+# inference service consumes Redis stream when redis.enabled=true
+```
+
+## Tests & lint
+
+```bash
+make test
+make lint
+```
+
+## Project layout
+
+```
+src/ingestion/    # capture + Redis buffer
+src/ml/           # TGN, training, explainability
+src/inference/    # FastAPI service
+src/utils/        # feature engineering
+dashboard/        # React UI
+scripts/          # dataset, train, demo model
+tests/            # pytest suite
+```
 
 ## License
 
-MIT License
+MIT
 
 ## Citation
-
-If you use Sentinel-Stream in your research, please cite:
 
 ```bibtex
 @software{sentinel-stream,
   title={Sentinel-Stream: Real-Time Network Anomaly Detection},
   author={RealTimElito},
-  year={2024},
+  year={2026},
   url={https://github.com/RealTimElito/sentinel-stream}
 }
 ```
-

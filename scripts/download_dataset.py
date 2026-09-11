@@ -2,11 +2,10 @@
 """Download CIC-IDS2017 dataset using various methods."""
 
 import argparse
-import os
-import sys
-import subprocess
 import logging
-from pathlib import Path
+import os
+import subprocess
+import sys
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 def download_via_kaggle(data_path: str):
     """Download dataset via Kaggle API."""
     logger.info("Attempting to download via Kaggle...")
-    
+
     # Check if kaggle is installed
     try:
         import kaggle
@@ -23,14 +22,10 @@ def download_via_kaggle(data_path: str):
         logger.error("Kaggle API not installed. Install with: pip install kaggle")
         logger.info("Then set up credentials: https://www.kaggle.com/docs/api")
         return False
-    
+
     try:
         os.makedirs(data_path, exist_ok=True)
-        kaggle.api.dataset_download_files(
-            'cicdataset/cicids2017',
-            path=data_path,
-            unzip=True
-        )
+        kaggle.api.dataset_download_files("cicdataset/cicids2017", path=data_path, unzip=True)
         logger.info("Download successful!")
         return True
     except Exception as e:
@@ -41,14 +36,11 @@ def download_via_kaggle(data_path: str):
 def download_via_wget(url: str, data_path: str):
     """Download dataset via wget."""
     logger.info(f"Attempting to download via wget from {url}...")
-    
+
     os.makedirs(data_path, exist_ok=True)
-    
+
     try:
-        subprocess.run(
-            ['wget', '--continue', '--progress=bar', '-P', data_path, url],
-            check=True
-        )
+        subprocess.run(["wget", "--continue", "--progress=bar", "-P", data_path, url], check=True)
         logger.info("Download successful!")
         return True
     except subprocess.CalledProcessError as e:
@@ -62,30 +54,31 @@ def download_via_wget(url: str, data_path: str):
 def download_via_curl(url: str, data_path: str):
     """Download dataset via curl."""
     logger.info(f"Attempting to download via curl from {url}...")
-    
+
     os.makedirs(data_path, exist_ok=True)
-    
+
     # Determine filename
-    if url.endswith('.zip'):
+    if url.endswith(".zip"):
         filename = os.path.join(data_path, os.path.basename(url))
     else:
-        filename = os.path.join(data_path, 'dataset.zip')
-    
+        filename = os.path.join(data_path, "dataset.zip")
+
     # Build curl command (no auth needed for this dataset)
-    cmd = ['curl', '-L', '--progress-bar', '-o', filename, url]
-    
+    cmd = ["curl", "-L", "--progress-bar", "-o", filename, url]
+
     try:
         subprocess.run(cmd, check=True)
         logger.info(f"Download successful! Saved to {filename}")
-        
+
         # Try to extract if it's a zip file
-        if filename.endswith('.zip'):
+        if filename.endswith(".zip"):
             logger.info("Extracting archive...")
             import zipfile
-            with zipfile.ZipFile(filename, 'r') as zip_ref:
+
+            with zipfile.ZipFile(filename, "r") as zip_ref:
                 zip_ref.extractall(data_path)
             logger.info("Extraction complete!")
-        
+
         return True
     except subprocess.CalledProcessError as e:
         logger.error(f"curl download failed: {e}")
@@ -106,40 +99,31 @@ def download_network_intrusion_dataset(data_path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Download network intrusion datasets')
+    parser = argparse.ArgumentParser(description="Download network intrusion datasets")
     parser.add_argument(
-        '--method',
+        "--method",
         type=str,
-        choices=['kaggle', 'wget', 'curl', 'network-intrusion', 'manual'],
-        default='manual',
-        help='Download method'
+        choices=["kaggle", "wget", "curl", "network-intrusion", "manual"],
+        default="manual",
+        help="Download method",
     )
-    parser.add_argument(
-        '--url',
-        type=str,
-        help='Direct download URL (for wget/curl methods)'
-    )
-    parser.add_argument(
-        '--data-path',
-        type=str,
-        default='./data/raw',
-        help='Path to save dataset'
-    )
+    parser.add_argument("--url", type=str, help="Direct download URL (for wget/curl methods)")
+    parser.add_argument("--data-path", type=str, default="./data/raw", help="Path to save dataset")
     args = parser.parse_args()
-    
+
     logger.info("Network Intrusion Dataset Downloader")
     logger.info("=" * 50)
-    
-    if args.method == 'kaggle':
+
+    if args.method == "kaggle":
         success = download_via_kaggle(args.data_path)
-    elif args.method == 'network-intrusion':
+    elif args.method == "network-intrusion":
         success = download_network_intrusion_dataset(args.data_path)
-    elif args.method == 'wget':
+    elif args.method == "wget":
         if not args.url:
             logger.error("--url required for wget method")
             sys.exit(1)
         success = download_via_wget(args.url, args.data_path)
-    elif args.method == 'curl':
+    elif args.method == "curl":
         if not args.url:
             logger.error("--url required for curl method")
             sys.exit(1)
@@ -160,12 +144,15 @@ def main():
         logger.info("   python scripts/download_dataset.py --method network-intrusion")
         logger.info("   Or with curl directly:")
         logger.info("   curl -L -o ~/Downloads/network-intrusion-dataset.zip \\")
-        logger.info("     https://www.kaggle.com/api/v1/datasets/download/chethuhn/network-intrusion-dataset")
+        logger.info(
+            "     https://www.kaggle.com/api/v1/datasets/download/"
+            "chethuhn/network-intrusion-dataset"
+        )
         logger.info("")
         logger.info("3. Google Drive mirrors (search for 'CIC-IDS2017 CSV')")
         logger.info("")
         success = False
-    
+
     if success:
         logger.info(f"Dataset saved to {args.data_path}")
         logger.info("You can now run: python scripts/prepare_dataset.py --dataset CIC-IDS2017")
@@ -174,6 +161,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-

@@ -10,11 +10,11 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
-    {name = "Sentinel-Stream Contributors"}
+    {name = "RealTimElito"}
 ]
 keywords = ["network", "security", "anomaly-detection", "graph-neural-networks", "ml"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
@@ -33,7 +33,6 @@ dependencies = [
     "pandas>=2.0.0",
     "scikit-learn>=1.3.0",
     "scapy>=2.5.0",
-    "pypcap>=1.2.3",
     "redis>=5.0.0",
     "h5py>=3.9.0",
     "shap>=0.42.0",
@@ -42,6 +41,7 @@ dependencies = [
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.4.0",
     "websockets>=12.0",
+    "httpx>=0.25.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0.1",
     "tqdm>=4.66.0",
@@ -58,15 +58,19 @@ dev = [
     "flake8>=6.1.0",
     "mypy>=1.6.0",
 ]
+pcap = [
+    "pypcap>=1.2.3",
+]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/sentinel-stream"
-Documentation = "https://github.com/yourusername/sentinel-stream#readme"
-Repository = "https://github.com/yourusername/sentinel-stream"
-Issues = "https://github.com/yourusername/sentinel-stream/issues"
+Homepage = "https://github.com/RealTimElito/sentinel-stream"
+Documentation = "https://github.com/RealTimElito/sentinel-stream#readme"
+Repository = "https://github.com/RealTimElito/sentinel-stream"
+Issues = "https://github.com/RealTimElito/sentinel-stream/issues"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["src*"]
 
 [tool.black]
 line-length = 100
@@ -77,10 +81,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
-

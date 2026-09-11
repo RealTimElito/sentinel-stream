@@ -16,89 +16,85 @@ function App() {
   });
   const [alerts, setAlerts] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [modelTrained, setModelTrained] = useState(false);
+  const [mode, setMode] = useState('connecting');
+
+  const applyPrediction = useCallback((data) => {
+    if (data.topology) {
+      setNetworkData(data.topology);
+    }
+
+    setStats((prev) => {
+      const anomalies = prev.anomalies + (data.is_anomaly ? 1 : 0);
+      const normal = prev.normal + (data.is_anomaly ? 0 : 1);
+      const totalFlows = prev.totalFlows + 1;
+      return {
+        totalFlows,
+        anomalies,
+        normal,
+        anomalyRate: totalFlows ? (anomalies / totalFlows) * 100 : 0
+      };
+    });
+
+    if (data.is_anomaly) {
+      setAlerts((prev) =>
+        [
+          {
+            id: Date.now(),
+            timestamp: new Date().toISOString(),
+            score: data.anomaly_score,
+            explanation: data.explanation
+          },
+          ...prev
+        ].slice(0, 50)
+      );
+    }
+  }, []);
+
+  const pollDemo = useCallback(async () => {
+    try {
+      const response = await axios.post(`${API_URL}/demo/predict`);
+      setIsConnected(true);
+      setMode('live');
+      applyPrediction(response.data);
+    } catch (error) {
+      console.error('Demo predict failed', error);
+      setIsConnected(false);
+      setMode('offline');
+    }
+  }, [applyPrediction]);
 
   useEffect(() => {
-    // Check API health
-    axios.get(`${API_URL}/health`)
-      .then(() => setIsConnected(true))
-      .catch(() => setIsConnected(false));
+    let cancelled = false;
+    let intervalId;
 
-    // WebSocket connection for real-time updates
-    const ws = new WebSocket(`ws://${API_URL.replace('http://', '').replace('https://', '')}/ws`);
-    
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.is_anomaly) {
-        handleAnomaly(data);
+    const bootstrap = async () => {
+      try {
+        const health = await axios.get(`${API_URL}/health`);
+        if (cancelled) return;
+        setIsConnected(true);
+        setModelTrained(Boolean(health.data.model_trained));
+        setMode('live');
+        await pollDemo();
+        intervalId = setInterval(pollDemo, 5000);
+      } catch (error) {
+        if (cancelled) return;
+        console.error('API unavailable', error);
+        setIsConnected(false);
+        setMode('offline');
+        setNetworkData({ nodes: [], links: [] });
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setIsConnected(false);
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setIsConnected(false);
-    };
-
+    bootstrap();
     return () => {
-      ws.close();
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
     };
-  }, []);
-
-  const handleAnomaly = useCallback((anomalyData) => {
-    const alert = {
-      id: Date.now(),
-      timestamp: new Date().toISOString(),
-      score: anomalyData.anomaly_score,
-      explanation: anomalyData.explanation
-    };
-    
-    setAlerts(prev => [alert, ...prev].slice(0, 50)); // Keep last 50 alerts
-    
-    // Update stats
-    setStats(prev => ({
-      ...prev,
-      anomalies: prev.anomalies + 1,
-      totalFlows: prev.totalFlows + 1,
-      anomalyRate: ((prev.anomalies + 1) / (prev.totalFlows + 1)) * 100
-    }));
-  }, []);
-
-  const simulateNetworkData = useCallback(() => {
-    // Simulate network topology data
-    const nodes = Array.from({ length: 20 }, (_, i) => ({
-      id: `node_${i}`,
-      label: `192.168.1.${i + 1}`,
-      group: Math.floor(Math.random() * 3),
-      anomaly: Math.random() > 0.9
-    }));
-
-    const links = Array.from({ length: 30 }, () => ({
-      source: `node_${Math.floor(Math.random() * 20)}`,
-      target: `node_${Math.floor(Math.random() * 20)}`,
-      value: Math.random() * 10
-    }));
-
-    setNetworkData({ nodes, links });
-  }, []);
-
-  useEffect(() => {
-    simulateNetworkData();
-    const interval = setInterval(simulateNetworkData, 5000);
-    return () => clearInterval(interval);
-  }, [simulateNetworkData]);
+  }, [pollDemo]);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100">
-      {/* Header */}
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -109,29 +105,29 @@ function App() {
               Real-Time Network Anomaly Detection
             </span>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 text-sm">
+            <span className="text-slate-400">
+              {mode === 'live' ? 'API demo stream' : mode}
+            </span>
+            <span className={modelTrained ? 'text-green-400' : 'text-amber-400'}>
+              {modelTrained ? 'trained model' : 'untrained weights'}
+            </span>
             <div className={`flex items-center space-x-2 ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
               <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
-              <span className="text-sm">
-                {isConnected ? 'Connected' : 'Disconnected'}
-              </span>
+              <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="p-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Network Topology */}
           <div className="lg:col-span-2">
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
               <h2 className="text-xl font-semibold mb-4">Network Topology</h2>
               <NetworkTopology data={networkData} />
             </div>
           </div>
-
-          {/* Sidebar */}
           <div className="space-y-6">
             <StatsPanel stats={stats} />
             <AlertPanel alerts={alerts} />
@@ -143,4 +139,3 @@ function App() {
 }
 
 export default App;
-

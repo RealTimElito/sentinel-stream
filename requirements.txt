@@ -7,9 +7,11 @@ scikit-learn>=1.3.0
 
 # Data Processing
 scapy>=2.5.0
-pypcap>=1.2.3
 redis>=5.0.0
 h5py>=3.9.0
+
+# Optional packet capture (requires libpcap-dev). Prefer scapy if unavailable.
+# pypcap>=1.2.3
 
 # ML & Explainability
 shap>=0.42.0
@@ -20,6 +22,7 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.4.0
 websockets>=12.0
+httpx>=0.25.0
 
 # Utilities
 python-dotenv>=1.0.0
@@ -39,5 +42,4 @@ flake8>=6.1.0
 mypy>=1.6.0
 
 # Optional: Dataset download
-# kaggle>=1.5.12  # Uncomment to enable Kaggle dataset downloads
-
+# kaggle>=1.5.12
