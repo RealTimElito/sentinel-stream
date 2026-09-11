@@ -1,0 +1,13 @@
+# Lean CI/test dependencies (CPU torch to avoid runner disk pressure)
+numpy>=1.24.0
+pandas>=2.0.0
+pyyaml>=6.0.1
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.4.0
+httpx>=0.25.0
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+black>=23.10.0
+flake8>=6.1.0
