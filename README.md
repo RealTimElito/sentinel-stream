@@ -157,9 +157,9 @@ If you use Sentinel-Stream in your research, please cite:
 ```bibtex
 @software{sentinel-stream,
   title={Sentinel-Stream: Real-Time Network Anomaly Detection},
-  author={Your Name},
+  author={RealTimElito},
   year={2024},
-  url={https://github.com/yourusername/sentinel-stream}
+  url={https://github.com/RealTimElito/sentinel-stream}
 }
 ```
 
